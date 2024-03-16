@@ -1,4 +1,5 @@
 use axum::routing::{get, post, Router};
+use dotenv::dotenv;
 use sqlx::postgres::PgPoolOptions;
 use std::env;
 
@@ -6,7 +7,7 @@ mod handlers;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let _ = dotenv_vault::dotenv();
+    dotenv().ok();
 
     let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
     let addr = format!("0.0.0.0:{}", port);
