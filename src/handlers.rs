@@ -87,13 +87,37 @@ pub async fn update_quotes(
     let res = sqlx::query(
         r#"
         UPDATE quotes
-        SET book = $1, quote = $2, update_at = $3
+        SET book = $1, quote = $2, updated_at = $3
         WHERE id = $4
         "#,
     )
     .bind(&payload.book)
     .bind(&payload.quote)
     .bind(now)
+    .bind(id)
+    .execute(&pool)
+    .await
+    .map(|res| match res.rows_affected() {
+        0 => http::StatusCode::NOT_FOUND,
+        _ => http::StatusCode::OK,
+    });
+
+    match res {
+        Ok(status) => status,
+        Err(_) => http::StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+
+pub async fn delete_quotes(
+    extract::State(pool): extract::State<PgPool>,
+    extract::Path(id): extract::Path<uuid::Uuid>,
+) -> http::StatusCode {
+    let res = sqlx::query(
+        r#"
+        DELETE FROM quotes
+        WHERE id = $1
+        "#,
+    )
     .bind(id)
     .execute(&pool)
     .await
