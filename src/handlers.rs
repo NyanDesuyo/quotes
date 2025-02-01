@@ -1,153 +1,113 @@
-use axum::{extract, http};
-use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, PgPool};
+mod create_quote;
+mod delete_one_quote;
+mod read_all_quotes;
+mod read_one_quote;
+mod update_one_quote;
 
-#[derive(Serialize, FromRow)]
+use crate::state::AppState;
+use axum::http::StatusCode;
+use axum::{
+    extract::{Path, State},
+    Json,
+};
+use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
+
+#[derive(Serialize, Deserialize, FromRow, Debug, Clone)]
 pub struct Quote {
-    id: uuid::Uuid,
+    id: i64,
+    uuid: uuid::Uuid,
     book: String,
     quote: String,
+    remarks: Option<String>,
     inserted_at: chrono::DateTime<chrono::Utc>,
     updated_at: chrono::DateTime<chrono::Utc>,
 }
 
-impl Quote {
-    fn new(book: String, quote: String) -> Self {
-        let now = chrono::Utc::now();
-        Self {
-            id: uuid::Uuid::new_v4(),
-            book,
-            quote,
-            inserted_at: now,
-            updated_at: now,
+pub async fn health() -> StatusCode {
+    StatusCode::OK
+}
+
+pub async fn create_quote(
+    State(state): State<AppState>,
+    Json(body): Json<create_quote::CreateQuote>,
+) -> Result<(StatusCode, Json<Quote>), StatusCode> {
+    let res = create_quote::create(state, body).await;
+
+    match res {
+        Ok(x) => Ok((StatusCode::CREATED, Json(x))),
+        Err(e) => {
+            tracing::error!("{}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
 }
 
-#[derive(Debug, Deserialize)]
-pub struct CreateQuote {
-    book: String,
-    quote: String,
-}
-
-pub async fn health() -> http::StatusCode {
-    http::StatusCode::OK
-}
-
-pub async fn create_quote(
-    extract::State(pool): extract::State<PgPool>,
-    axum::Json(payload): axum::Json<CreateQuote>,
-) -> Result<(http::StatusCode, axum::Json<Quote>), http::StatusCode> {
-    let quote = Quote::new(payload.book, payload.quote);
-
-    let res = sqlx::query(
-        r#"
-        INSERT INTO quotes (id, book, quote, inserted_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5)
-        "#,
-    )
-    .bind(&quote.id)
-    .bind(&quote.book)
-    .bind(&quote.quote)
-    .bind(&quote.inserted_at)
-    .bind(&quote.updated_at)
-    .execute(&pool)
-    .await;
+pub async fn read_all_quotes(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<Quote>>, StatusCode> {
+    let res = read_all_quotes::read(state).await;
 
     match res {
-        Ok(_) => Ok((http::StatusCode::CREATED, axum::Json(quote))),
-        Err(_) => Err(http::StatusCode::INTERNAL_SERVER_ERROR),
-    }
-}
-
-pub async fn read_quotes(
-    extract::State(pool): extract::State<PgPool>,
-) -> Result<axum::Json<Vec<Quote>>, http::StatusCode> {
-    let res = sqlx::query_as(
-        r#"
-        SELECT * FROM quotes
-        "#,
-    )
-    .fetch_all(&pool)
-    .await;
-
-    match res {
-        Ok(quotes) => Ok(axum::Json(quotes)),
-        Err(_) => Err(http::StatusCode::INTERNAL_SERVER_ERROR),
+        Ok(x) => Ok(Json(x)),
+        Err(e) => {
+            tracing::error!("{}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
     }
 }
 
 pub async fn read_one_quotes(
-    extract::State(pool): extract::State<PgPool>,
-    extract::Path(id): extract::Path<uuid::Uuid>,
-) -> Result<axum::Json<Quote>, http::StatusCode> {
-    let res = sqlx::query_as(
-        r#"
-        SELECT * FROM quotes
-        WHERE id = $1
-        "#,
-    )
-    .bind(id)
-    .fetch_one(&pool)
-    .await;
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>, //id<i64>,
+) -> Result<Json<Quote>, StatusCode> {
+    let res = read_one_quote::find_by_id(state, id).await;
 
     match res {
-        Ok(quotes) => Ok(axum::Json(quotes)),
-        Err(_) => Err(http::StatusCode::INTERNAL_SERVER_ERROR),
+        Ok(x) => match x {
+            Some(x) => Ok(Json(x)),
+            None => Err(StatusCode::NOT_FOUND),
+        },
+        Err(e) => {
+            tracing::error!("{}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
     }
 }
 
-pub async fn update_quotes(
-    extract::State(pool): extract::State<PgPool>,
-    extract::Path(id): extract::Path<uuid::Uuid>,
-    axum::Json(payload): axum::Json<CreateQuote>,
-) -> http::StatusCode {
-    let now = chrono::Utc::now();
-
-    let res = sqlx::query(
-        r#"
-        UPDATE quotes
-        SET book = $1, quote = $2, updated_at = $3
-        WHERE id = $4
-        "#,
-    )
-    .bind(&payload.book)
-    .bind(&payload.quote)
-    .bind(now)
-    .bind(id)
-    .execute(&pool)
-    .await
-    .map(|res| match res.rows_affected() {
-        0 => http::StatusCode::NOT_FOUND,
-        _ => http::StatusCode::OK,
-    });
+pub async fn update_one_quotes(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+    Json(body): Json<update_one_quote::UpdateQuote>,
+) -> StatusCode {
+    let res = update_one_quote::update(state, id, body).await;
 
     match res {
-        Ok(status) => status,
-        Err(_) => http::StatusCode::INTERNAL_SERVER_ERROR,
+        Ok(x) => match x {
+            None => StatusCode::NOT_FOUND,
+            _ => StatusCode::OK,
+        },
+        Err(e) => {
+            tracing::error!("{}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
     }
 }
 
-pub async fn delete_quotes(
-    extract::State(pool): extract::State<PgPool>,
-    extract::Path(id): extract::Path<uuid::Uuid>,
-) -> http::StatusCode {
-    let res = sqlx::query(
-        r#"
-        DELETE FROM quotes
-        WHERE id = $1
-        "#,
-    )
-    .bind(id)
-    .execute(&pool)
-    .await
-    .map(|res| match res.rows_affected() {
-        0 => http::StatusCode::NOT_FOUND,
-        _ => http::StatusCode::OK,
-    });
+pub async fn delete_one_quotes(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+) -> StatusCode {
+    let res = delete_one_quote::delete(state, id).await;
 
     match res {
-        Ok(status) => status,
-        Err(_) => http::StatusCode::INTERNAL_SERVER_ERROR,
+        Ok(rows) => match rows {
+            0 => StatusCode::NOT_FOUND,
+            _ => StatusCode::OK,
+        },
+        Err(e) => {
+            tracing::error!("{}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
     }
 }
