@@ -23,6 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/", get(handlers::health))
         .route("/quotes", post(handlers::create_quote))
         .route("/quotes", get(handlers::read_quotes))
+        .route("/quotes/:id", get(handlers::read_one_quotes))
         .route("/quotes/:id", put(handlers::update_quotes))
         .route("/quotes/:id", delete(handlers::delete_quotes))
         .with_state(pool);
