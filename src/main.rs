@@ -1,4 +1,4 @@
-use axum::routing::{delete, get, post, put, Router};
+use axum::routing::{get, post, put, Router};
 use dotenv::dotenv;
 use sqlx::postgres::PgPoolOptions;
 use std::env;
@@ -25,7 +25,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/quotes", get(handlers::read_quotes))
         .route("/quotes/:id", get(handlers::read_one_quotes))
         .route("/quotes/:id", put(handlers::update_quotes))
-        .route("/quotes/:id", delete(handlers::delete_quotes))
         .with_state(pool);
 
     axum::Server::bind(&addr.parse().unwrap())
